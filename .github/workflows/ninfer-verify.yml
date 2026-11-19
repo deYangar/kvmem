@@ -1,0 +1,60 @@
+name: NInfer verify (fork-only)
+
+# Fork-only verification for the --default-tool-constraints patch: build the
+# standalone ninfer_tool_constraints_test inside the CUDA container and run it.
+# The test exercises request parsing and grammar selection on the CPU; no GPU
+# is present on the runner. This workflow never runs on kvmem/kvmem master and
+# is not part of the PR.
+
+on:
+  push:
+    branches: [ci-verify/default-tool-constraints]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ninfer-tool-constraints:
+    runs-on: ubuntu-latest
+    container: nvidia/cuda:12.8.1-devel-ubuntu24.04
+    timeout-minutes: 150
+    steps:
+      - name: Prepare reliable Ubuntu package downloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' 'Acquire::Retries "2";' \
+            'Acquire::http::Timeout "30";' 'Acquire::https::Timeout "30";' \
+            'APT::Update::Error-Mode "any";' \
+            | tee /etc/apt/apt.conf.d/80kvmem-downloads >/dev/null
+          apt-get update -qq
+      - name: Install build dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: >
+          apt-get install -y --no-install-recommends
+          git ca-certificates build-essential cmake ninja-build python3 libssl-dev
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+      - name: Trust the checked-out workspace in the CUDA container
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Prepare the pinned ninfer integration
+        run: |
+          python3 scripts/prepare-backends.py --backend ninfer
+          python3 scripts/prepare-backends.py --backend ninfer --check
+      - name: Prepare the CUDA driver stub for linking
+        run: |
+          mkdir -p "$RUNNER_TEMP/cuda-driver-stubs"
+          ln -s /usr/local/cuda/lib64/stubs/libcuda.so "$RUNNER_TEMP/cuda-driver-stubs/libcuda.so.1"
+      - name: Configure the ninfer build
+        run: >-
+          cmake -S backends/ninfer -B build-ninfer -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_CUDA_ARCHITECTURES=120a-real
+          -DCMAKE_EXE_LINKER_FLAGS="-Wl,-rpath-link,$RUNNER_TEMP/cuda-driver-stubs"
+      - name: Build the tool-constraints test
+        run: cmake --build build-ninfer --target ninfer_tool_constraints_test
+      - name: Run the tool-constraints test
+        run: ctest --test-dir build-ninfer -R tool_constraints --output-on-failure --no-tests=error
