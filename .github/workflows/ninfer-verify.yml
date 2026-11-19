@@ -35,7 +35,7 @@ jobs:
         run: >
           apt-get install -y --no-install-recommends
           git ca-certificates build-essential gcc-13 g++-13 cmake ninja-build
-          pkg-config meson nasm zlib1g-dev libcurl4-openssl-dev python3
+          pkg-config meson nasm zlib1g-dev libcurl4-openssl-dev python3 ccache
       - uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -52,14 +52,25 @@ jobs:
           ln -s /usr/local/cuda/lib64/stubs/libcuda.so "$RUNNER_TEMP/cuda-driver-stubs/libcuda.so.1"
       - name: Fetch pinned media sources (FFmpeg / dav1d archives)
         run: bash backends/ninfer/scripts/fetch-media-sources.sh
+      - name: Restore compiler cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ninfer-verify-ccache-v1-${{ hashFiles('backends/versions.json', 'backends/patches/**') }}
+          restore-keys: |
+            ninfer-verify-ccache-v1-
       - name: Configure the ninfer build
         run: >-
           cmake -S backends/ninfer -B build-ninfer -G Ninja -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_C_COMPILER=/usr/bin/gcc-13 -DCMAKE_CXX_COMPILER=/usr/bin/g++-13
           -DCMAKE_CUDA_HOST_COMPILER=/usr/bin/g++-13
           -DCMAKE_CUDA_ARCHITECTURES=120a -DBUILD_TESTING=ON
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache
           -DCMAKE_EXE_LINKER_FLAGS="-Wl,-rpath-link,$RUNNER_TEMP/cuda-driver-stubs"
       - name: Build the tool-constraints test
         run: cmake --build build-ninfer --target ninfer_tool_constraints_test
       - name: Run the tool-constraints test
+        env:
+          LD_LIBRARY_PATH: ${{ runner.temp }}/cuda-driver-stubs
         run: ctest --test-dir build-ninfer -R tool_constraints --output-on-failure --no-tests=error
