@@ -57,7 +57,7 @@ jobs:
           cmake -S backends/ninfer -B build-ninfer -G Ninja -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_C_COMPILER=/usr/bin/gcc-13 -DCMAKE_CXX_COMPILER=/usr/bin/g++-13
           -DCMAKE_CUDA_HOST_COMPILER=/usr/bin/g++-13
-          -DCMAKE_CUDA_ARCHITECTURES=120a
+          -DCMAKE_CUDA_ARCHITECTURES=120a -DBUILD_TESTING=ON
           -DCMAKE_EXE_LINKER_FLAGS="-Wl,-rpath-link,$RUNNER_TEMP/cuda-driver-stubs"
       - name: Build the tool-constraints test
         run: cmake --build build-ninfer --target ninfer_tool_constraints_test
